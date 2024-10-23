@@ -4,11 +4,11 @@ mod load_balancer;
 use env_logger::Env;
 use log::{error, info};
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::Sender;
-use tokio::sync::{mpsc};
+use tokio::sync::{mpsc, Mutex};
 use crate::load_balancer::LoadBalancer;
 
 #[tokio::main]
@@ -24,8 +24,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
 
-    let lb = LoadBalancer {};
-    let lb = Arc::new(lb);
+    let lb = LoadBalancer::new();
+    let lb = Arc::new(Mutex::new(lb));
 
     loop {
         tokio::select! {
@@ -34,6 +34,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     Ok((socket, _)) => {
                         let lb = lb.clone();
                         tokio::spawn(async move {
+                            let mut lb = lb.lock().await;
                             lb.handle(socket).await;
                         });
                     }
@@ -42,7 +43,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-
 
             _ = shutdown_rx.recv() => {
                 info!("Shutting down");

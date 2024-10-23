@@ -8,7 +8,7 @@ use std::sync::{Arc};
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::Sender;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc};
 use crate::load_balancer::LoadBalancer;
 
 #[tokio::main]
@@ -23,9 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
-
-    let lb = LoadBalancer::new();
-    let lb = Arc::new(Mutex::new(lb));
+    let lb = Arc::new(LoadBalancer::new());
 
     loop {
         tokio::select! {
@@ -34,7 +32,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     Ok((socket, _)) => {
                         let lb = lb.clone();
                         tokio::spawn(async move {
-                            let mut lb = lb.lock().await;
                             lb.handle(socket).await;
                         });
                     }

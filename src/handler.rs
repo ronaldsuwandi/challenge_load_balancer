@@ -1,3 +1,5 @@
+use std::error::Error;
+use std::str::from_utf8;
 use tokio::net::{TcpStream};
 use log::{error, info, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -24,7 +26,7 @@ impl LoadBalancer {
                         }
                         Ok(n) => {
                             info!("read bytes: {}", n);
-                            let req = std::str::from_utf8(&req_buffer[0..n]).unwrap().to_string();
+                            let req = from_utf8(&req_buffer[0..n]).unwrap().to_string();
                             info!("req: {:?}", req);
                             target_wr.write_all(&req_buffer[0..n]).await.unwrap();
                         }

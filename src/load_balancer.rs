@@ -32,6 +32,11 @@ impl LoadBalancer {
                     url: "localhost:8082".to_string(),
                     health_check_url: "localhost:8082".to_string(),
                     healthy: true,
+                },
+                Server {
+                    url: "localhost:8083".to_string(),
+                    health_check_url: "localhost:8083".to_string(),
+                    healthy: true,
                 }
             ])),
             last_server: AtomicU32::new(0),

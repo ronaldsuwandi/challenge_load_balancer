@@ -10,7 +10,7 @@ impl LoadBalancer {
             // split socket read/write so it can be used by both async functions
             let (mut socket_rd, mut socket_wr) = socket.split();
 
-            let mut target_stream = TcpStream::connect(target_server.url.clone()).await.unwrap();
+            let mut target_stream = TcpStream::connect(&target_server.url).await.unwrap();
             let (mut target_rd, mut target_wr) = target_stream.split();
 
             let client_to_target = async {

@@ -5,10 +5,12 @@ use env_logger::Env;
 use log::{error, info};
 use std::error::Error;
 use std::sync::{Arc};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc};
+use tokio::time::sleep;
 use crate::load_balancer::LoadBalancer;
 
 #[tokio::main]
@@ -24,6 +26,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
     let lb = Arc::new(LoadBalancer::new());
+
+    let lb_clone = lb.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = sleep(Duration::from_secs(2)) => {
+                    info!("Executing health check...");
+                    lb_clone.health_check().await;
+                }
+            }
+        }
+    });
 
     loop {
         tokio::select! {

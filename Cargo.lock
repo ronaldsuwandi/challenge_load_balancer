@@ -121,6 +121,7 @@ dependencies = [
  "env_logger",
  "log",
  "loom",
+ "regex",
  "tokio",
 ]
 

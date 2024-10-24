@@ -26,12 +26,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
     let lb = Arc::new(LoadBalancer::new());
+    // initial healthcheck
+    lb.health_check().await;
 
     let lb_clone = lb.clone();
+
     tokio::spawn(async move {
         loop {
             tokio::select! {
-                _ = sleep(Duration::from_secs(2)) => {
+                _ = sleep(Duration::from_secs(5)) => {
                     info!("Executing health check...");
                     lb_clone.health_check().await;
                 }

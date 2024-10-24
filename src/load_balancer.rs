@@ -46,16 +46,20 @@ impl LoadBalancer {
     pub async fn choose_server(&self) -> Option<Server> {
         let servers = self.servers.read().await; // acquire a read lock
 
-        let healthy_servers: Vec<&Server> = servers.iter()
-            .filter(|&s| s.healthy)
-            .collect();
+        let length = servers.len();
+        let mut tries = 0;
 
-        if healthy_servers.is_empty() {
-            return None;
+        // try to check the next server one by one
+        while tries < length {
+            let index = self.last_server.fetch_add(1, Ordering::SeqCst) % length as u32;
+            tries += 1;
+            let server = &servers[index as usize];
+            if server.healthy {
+                return Some(server.clone());
+            }
         }
 
-        let index = self.last_server.fetch_add(1, Ordering::SeqCst) % healthy_servers.len() as u32;
-        Some(healthy_servers[index as usize].clone())
+        None
     }
 
     pub async fn health_check(&self) {
@@ -83,7 +87,7 @@ impl LoadBalancer {
                                 result = (server.url.to_string(), false);
                             }
                             Ok(n) => {
-                                info!("read from target bytes: {}", n);
+                                info!("response from: {}, read from target bytes: {}", server.health_check_url, n);
                                 let resp = std::str::from_utf8(&buf[0..n]).unwrap().to_string();
 
                                 // info!("response: {}", resp.clone());

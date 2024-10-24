@@ -58,7 +58,7 @@ impl LoadBalancer {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let regex_ok = Regex::new(r"^HTTP/\d\.\d 200").unwrap();
-                info!("Checking {}", server.health_check_url);
+                info!("Checking server {}", server.id);
 
 
                 let target_result = TcpStream::connect(&server.health_check_url).await;
@@ -82,7 +82,7 @@ impl LoadBalancer {
                                 if regex_ok.is_match(&resp) {
                                     result = (server.url.to_string(), true);
                                 } else {
-                                    warn!("Server is not available {}", server.id);
+                                    warn!("Server {} is not available", server.id);
                                     result = (server.url.to_string(), false);
                                 }
                             }

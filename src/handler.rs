@@ -5,7 +5,7 @@ use crate::load_balancer::LoadBalancer;
 
 impl LoadBalancer {
     pub async fn handle(&self, mut socket: TcpStream) {
-        if let Some(target_server) = self.choose_server() {
+        if let Some(target_server) = self.choose_server().await {
             let mut req_buffer = [0; 4096];
             // split socket read/write so it can be used by both async functions
             let (mut socket_rd, mut socket_wr) = socket.split();

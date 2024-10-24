@@ -1,9 +1,11 @@
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpStream};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use log::{error, info, warn};
+use tokio::sync::{RwLock, mpsc};
 use regex::Regex;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 #[derive(Debug, Clone)]
 pub struct Server {
@@ -37,8 +39,8 @@ impl LoadBalancer {
         }
     }
 
-    pub fn choose_server(&self) -> Option<Server> {
-        let servers = self.servers.read().unwrap(); // acquire a read lock
+    pub async fn choose_server(&self) -> Option<Server> {
+        let servers = self.servers.read().await; // acquire a read lock
 
         let healthy_servers: Vec<&Server> = servers.iter()
             .filter(|&s| s.healthy)
@@ -53,36 +55,69 @@ impl LoadBalancer {
     }
 
     pub async fn health_check(&self) {
-        let mut servers = self.servers.write().unwrap();
-        let regex_ok = Regex::new(r"^HTTP/\d\.\d 200").unwrap();
-        for server in servers.iter_mut() {
-            info!("Checking {}", server.health_check_url);
-            let mut target = TcpStream::connect(&server.health_check_url).unwrap();
-            target.write_all("GET / HTTP/1.1\r\nConnection: close\r\n\r\n".as_bytes()).unwrap();
-            let mut buf = [0; 4096];
-            match target.read(&mut buf) {
-                Ok(0) => {
-                    info!("target stream closed");
-                }
-                Ok(n) => {
-                    info!("read from target bytes: {}", n);
-                    let resp = std::str::from_utf8(&buf[0..n]).unwrap().to_string();
+        let servers = self.servers.read().await;
+        let (tx, mut rx) = mpsc::channel(32);
 
-                    info!("response: {}", resp.clone());
+        for server in servers.iter() {
+            let server = server.clone();
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let regex_ok = Regex::new(r"^HTTP/\d\.\d 200").unwrap();
+                info!("Checking {}", server.health_check_url);
 
-                    if regex_ok.is_match(&resp) {
-                        server.healthy = true;
-                    } else {
-                        warn!("Server is not available {}", server.url);
-                        server.healthy = false;
+
+                let mut targetResult = TcpStream::connect(&server.health_check_url).await;
+
+                match targetResult {
+                    Ok(mut target) => {
+                        target.write_all("GET / HTTP/1.1\r\nConnection: close\r\n\r\n".as_bytes()).await.unwrap();
+                        let mut buf = [0; 4096];
+                        let result: (String, bool);
+                        match target.read(&mut buf).await {
+                            Ok(0) => {
+                                info!("target stream closed");
+                                result = (server.url.to_string(), false);
+                            }
+                            Ok(n) => {
+                                info!("read from target bytes: {}", n);
+                                let resp = std::str::from_utf8(&buf[0..n]).unwrap().to_string();
+
+                                // info!("response: {}", resp.clone());
+
+                                if regex_ok.is_match(&resp) {
+                                    result = (server.url.to_string(), true);
+                                } else {
+                                    warn!("Server is not available {}", server.url);
+                                    result = (server.url.to_string(), false);
+                                }
+                            }
+                            Err(e) => {
+                                error!("target stream read error: {:?}", e);
+                                result = (server.url.to_string(), false);
+                            }
+                        }
+                        let _ = tx.send(result).await.unwrap();
+                        let _ = target.shutdown().await; // ignore if fail to shutdown socket
+                    }
+                    Err(e) => {
+                        error!("Error connecting to {}: {}", server.health_check_url, e);
+                        let _ = tx.send((server.url.to_string(), false)).await.unwrap();
                     }
                 }
-                Err(e) => {
-                    error!("target stream read error: {:?}", e);
-                    server.healthy = false
+                drop(tx);
+            });
+        }
+
+        drop(tx); // drop outer channel
+        drop(servers);
+
+        while let Some((url, healthy)) = rx.recv().await {
+            let mut servers = self.servers.write().await;
+            for mut server in servers.iter_mut() {
+                if server.url.eq(&url) {
+                    server.healthy = healthy;
                 }
             }
-            let _ = target.shutdown(Shutdown::Both); // ignore if fail to shutdown socket
         }
     }
 }

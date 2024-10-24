@@ -1,4 +1,3 @@
-use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc};
 use log::{error, info, warn};
@@ -71,9 +70,9 @@ impl LoadBalancer {
                 info!("Checking {}", server.health_check_url);
 
 
-                let mut targetResult = TcpStream::connect(&server.health_check_url).await;
+                let target_result = TcpStream::connect(&server.health_check_url).await;
 
-                match targetResult {
+                match target_result {
                     Ok(mut target) => {
                         target.write_all("GET / HTTP/1.1\r\nConnection: close\r\n\r\n".as_bytes()).await.unwrap();
                         let mut buf = [0; 4096];
@@ -101,12 +100,12 @@ impl LoadBalancer {
                                 result = (server.url.to_string(), false);
                             }
                         }
-                        let _ = tx.send(result).await.unwrap();
+                        tx.send(result).await.unwrap();
                         let _ = target.shutdown().await; // ignore if fail to shutdown socket
                     }
                     Err(e) => {
                         error!("Error connecting to {}: {}", server.health_check_url, e);
-                        let _ = tx.send((server.url.to_string(), false)).await.unwrap();
+                        tx.send((server.url.to_string(), false)).await.unwrap();
                     }
                 }
                 drop(tx);
@@ -118,7 +117,7 @@ impl LoadBalancer {
 
         while let Some((url, healthy)) = rx.recv().await {
             let mut servers = self.servers.write().await;
-            for mut server in servers.iter_mut() {
+            for server in servers.iter_mut() {
                 if server.url.eq(&url) {
                     server.healthy = healthy;
                 }

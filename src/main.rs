@@ -1,19 +1,19 @@
 mod handler;
 mod load_balancer;
+mod config;
 
 use env_logger::Env;
-use log::{error, info};
+use log::{debug, error, info};
 use std::error::Error;
-use std::{env, fs};
+use std::{env};
 use std::sync::{Arc};
 use std::time::Duration;
-use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc};
 use tokio::time::sleep;
-use crate::load_balancer::{LoadBalancer, Server};
+use crate::load_balancer::{LoadBalancer};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -22,15 +22,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let conf_path = env::args().nth(1).unwrap_or_else(|| { "config.toml".to_string() });
-    let servers = parse_config(&conf_path);
+    let conf = config::parse_config(&conf_path);
 
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
     tokio::spawn(async move {
         signal_handlers(shutdown_tx).await;
     });
 
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
-    let lb = Arc::new(LoadBalancer::new(servers));
+    let listener = TcpListener::bind(conf.listener).await?;
+    let lb = Arc::new(LoadBalancer::new(conf.servers));
 
     // trigger initial healthcheck
     lb.health_check().await;
@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         loop {
             tokio::select! {
                 _ = sleep(Duration::from_secs(5)) => {
-                    info!("Executing health check...");
+                    debug!("Executing health check...");
                     lb_clone.health_check().await;
                 }
             }
@@ -55,7 +55,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     Ok((socket, _)) => {
                         let lb = lb.clone();
                         tokio::spawn(async move {
-                            lb.handle(socket).await;
+                            if let Err(e) = lb.handle(socket).await {
+                                error!("Error handling request: {}", e);
+                            }
                         });
                     }
                     Err(e) => {
@@ -73,17 +75,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn parse_config(conf: &str) -> Vec<Server> {
-    #[derive(Debug, Deserialize)]
-    struct Config {
-        servers: Vec<Server>,
-    }
-
-    let contents = fs::read_to_string(conf).expect("Unable to read config file");
-    let config: Config = toml::from_str(&contents).expect("Unable to parse config file");
-
-    config.servers
-}
 
 async fn signal_handlers(shutdown_tx: Sender<()>) {
     let mut sigterm = signal(SignalKind::terminate()).unwrap();

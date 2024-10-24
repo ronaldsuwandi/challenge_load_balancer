@@ -1,3 +1,5 @@
+listener = "127.0.0.1:8080"
+
 [[servers]]
 id = "1"
 url = "localhost:8081"

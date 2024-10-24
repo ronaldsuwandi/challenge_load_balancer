@@ -1,12 +1,11 @@
 use std::error::Error;
-use std::str::from_utf8;
 use tokio::net::{TcpStream};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::load_balancer::LoadBalancer;
 
 impl LoadBalancer {
-    pub async fn handle(&self, mut socket: TcpStream) {
+    pub async fn handle(&self, mut socket: TcpStream) -> Result<(), Box<dyn Error>> {
         if let Some(target_server) = self.choose_server().await {
             let mut req_buffer = [0; 4096];
             // split socket read/write so it can be used by both async functions
@@ -21,24 +20,19 @@ impl LoadBalancer {
                     // read input
                     match socket_rd.read(&mut req_buffer).await {
                         Ok(0) => {
-                            info!("socket closed");
+                            debug!("Input stream closed");
                             break;
                         }
                         Ok(n) => {
-                            info!("read bytes: {}", n);
-                            let req = from_utf8(&req_buffer[0..n]).unwrap().to_string();
-                            info!("req: {:?}", req);
-                            target_wr.write_all(&req_buffer[0..n]).await.unwrap();
+                            target_wr.write_all(&req_buffer[0..n]).await?;
                         }
                         Err(e) => {
-                            error!("socket read error: {:?}", e);
-                            return;
+                            return Err(e);
                         }
                     };
                 }
-                if let Err(e) = target_wr.shutdown().await {
-                    error!("Error shutting down target writer: {:?}", e);
-                }
+                let _ = target_wr.shutdown().await;
+                Ok(())
             };
 
             let mut resp_buffer = [0; 4096];
@@ -47,27 +41,32 @@ impl LoadBalancer {
                 loop {
                     match target_rd.read(&mut resp_buffer).await {
                         Ok(0) => {
-                            info!("target stream closed");
+                            debug!("Target stream closed");
                             break;
                         }
                         Ok(n) => {
-                            info!("read from server {}, target bytes: {}", target_server.id, n);
-                            socket_wr.write(&resp_buffer[0..n]).await.unwrap();
+                            info!("Read from server {}, target bytes: {}", target_server.id, n);
+                            socket_wr.write(&resp_buffer[0..n]).await?;
                         }
                         Err(e) => {
-                            error!("target stream read error: {:?}", e);
-                            return;
+                            return Err(e);
                         }
                     }
                 }
+                let _ = socket_wr.shutdown().await;
+                Ok(())
             };
 
-            tokio::join!(client_to_target, target_to_client);
+            if let Err(e) = tokio::try_join!(client_to_target, target_to_client) {
+                error!("Error: {:?}", e);
+                return Err(e.into());
+            }
         } else {
             warn!("No healthy server");
             let response = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-            socket.write_all(response.as_bytes()).await.unwrap();
-            socket.shutdown().await.unwrap();
+            socket.write_all(response.as_bytes()).await?;
+            let _ = socket.shutdown().await;
         }
+        Ok(())
     }
 }

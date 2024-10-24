@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc};
-use log::{error, info, warn};
+use log::{debug, error, warn};
 use tokio::sync::{RwLock, mpsc};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -58,23 +58,29 @@ impl LoadBalancer {
             let tx = tx.clone();
             tokio::spawn(async move {
                 let regex_ok = Regex::new(r"^HTTP/\d\.\d 200").unwrap();
-                info!("Checking server {}", server.id);
+                debug!("Checking server {}", server.id);
 
 
                 let target_result = TcpStream::connect(&server.health_check_url).await;
 
                 match target_result {
                     Ok(mut target) => {
-                        target.write_all("GET / HTTP/1.1\r\nConnection: close\r\n\r\n".as_bytes()).await.unwrap();
+                        if let Err(e) = target.write_all("GET / HTTP/1.1\r\nConnection: close\r\n\r\n".as_bytes()).await {
+                            error!("Error writing to stream: {:?}", e);
+                            if let Err(e) = tx.send((server.url.to_string(), false)).await {
+                                error!("Error sending result: {:?}", e);
+                            }
+                            return;
+                        }
                         let mut buf = [0; 4096];
                         let result: (String, bool);
                         match target.read(&mut buf).await {
                             Ok(0) => {
-                                info!("target stream closed");
+                                debug!("Target stream closed");
                                 result = (server.url.to_string(), false);
                             }
                             Ok(n) => {
-                                info!("response from: {}, read from target bytes: {}", server.id, n);
+                                debug!("Response from: {}, read from target bytes: {}", server.id, n);
                                 let resp = std::str::from_utf8(&buf[0..n]).unwrap().to_string();
 
                                 // info!("response: {}", resp.clone());
@@ -87,16 +93,20 @@ impl LoadBalancer {
                                 }
                             }
                             Err(e) => {
-                                error!("target stream read error: {:?}", e);
+                                error!("Target stream read error: {:?}", e);
                                 result = (server.url.to_string(), false);
                             }
                         }
-                        tx.send(result).await.unwrap();
+                        if let Err(e) = tx.send(result).await {
+                            error!("Error sending result: {:?}", e);
+                        }
                         let _ = target.shutdown().await; // ignore if fail to shutdown socket
                     }
                     Err(e) => {
                         error!("Error connecting to {}: {}", server.id, e);
-                        tx.send((server.url.to_string(), false)).await.unwrap();
+                        if let Err(e) = tx.send((server.url.to_string(), false)).await {
+                            error!("Error sending result: {:?}", e);
+                        }
                     }
                 }
                 drop(tx);
@@ -116,28 +126,3 @@ impl LoadBalancer {
         }
     }
 }
-
-// mod tests {
-//     use loom::sync::{Arc, RwLock};
-//     use loom::thread;
-//
-//     #[test]
-//     fn test_concurrent_health_updates() {
-//         loom::model(|| {
-//             let lb = Arc::new(LoadBalancer::new());
-//
-//             let lb1 = Arc::clone(&lb);
-//             let t1 = thread::spawn(move || {
-//                 lb1.update_health("localhost:8081", false);
-//             });
-//
-//             let lb2 = Arc::clone(&lb);
-//             let t2 = thread::spawn(move || {
-//                 let _ = lb2.get_healthy_server();
-//             });
-//
-//             t1.join().unwrap();
-//             t2.join().unwrap();
-//         });
-//     }
-// }

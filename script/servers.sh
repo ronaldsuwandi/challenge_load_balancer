@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Start the servers in the background
-python3 -m http.server 8081 --directory server1 &
+python3 -m http.server 8081 --directory script/server1 &
 server1_pid=$!
-python3 -m http.server 8082 --directory server2 &
+python3 -m http.server 8082 --directory script/server2 &
 server2_pid=$!
-python3 -m http.server 8083 --directory server3 &
+python3 -m http.server 8083 --directory script/server3 &
 server3_pid=$!
 
 # Function to clean up background processes

@@ -49,7 +49,7 @@ impl LoadBalancer {
                             break;
                         }
                         Ok(n) => {
-                            info!("read from target bytes: {}", n);
+                            info!("read from server {}, target bytes: {}", target_server.id, n);
                             socket_wr.write(&resp_buffer[0..n]).await.unwrap();
                         }
                         Err(e) => {

@@ -5,11 +5,15 @@ use tokio::sync::{RwLock, mpsc};
 use regex::Regex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use serde::Deserialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Server {
+    pub id: String,
     pub url: String,
     health_check_url: String,
+
+    #[serde(default)]
     healthy: bool,
 }
 
@@ -19,27 +23,10 @@ pub struct LoadBalancer {
 }
 
 impl LoadBalancer {
-    pub fn new() -> LoadBalancer {
+    pub fn new(servers: Vec<Server>) -> LoadBalancer {
         LoadBalancer {
-            servers: Arc::new(RwLock::new(vec![
-                Server {
-                    url: "localhost:8081".to_string(),
-                    health_check_url: "localhost:8081".to_string(),
-                    healthy: true,
-                },
-                Server {
-                    url: "localhost:8082".to_string(),
-                    health_check_url: "localhost:8082".to_string(),
-                    healthy: true,
-                },
-                Server {
-                    url: "localhost:8083".to_string(),
-                    health_check_url: "localhost:8083".to_string(),
-                    healthy: true,
-                }
-            ])),
+            servers: Arc::new(RwLock::new(servers)),
             last_server: AtomicU32::new(0),
-
         }
     }
 
@@ -87,7 +74,7 @@ impl LoadBalancer {
                                 result = (server.url.to_string(), false);
                             }
                             Ok(n) => {
-                                info!("response from: {}, read from target bytes: {}", server.health_check_url, n);
+                                info!("response from: {}, read from target bytes: {}", server.id, n);
                                 let resp = std::str::from_utf8(&buf[0..n]).unwrap().to_string();
 
                                 // info!("response: {}", resp.clone());
@@ -95,7 +82,7 @@ impl LoadBalancer {
                                 if regex_ok.is_match(&resp) {
                                     result = (server.url.to_string(), true);
                                 } else {
-                                    warn!("Server is not available {}", server.url);
+                                    warn!("Server is not available {}", server.id);
                                     result = (server.url.to_string(), false);
                                 }
                             }
@@ -108,7 +95,7 @@ impl LoadBalancer {
                         let _ = target.shutdown().await; // ignore if fail to shutdown socket
                     }
                     Err(e) => {
-                        error!("Error connecting to {}: {}", server.health_check_url, e);
+                        error!("Error connecting to {}: {}", server.id, e);
                         tx.send((server.url.to_string(), false)).await.unwrap();
                     }
                 }
@@ -129,3 +116,28 @@ impl LoadBalancer {
         }
     }
 }
+
+// mod tests {
+//     use loom::sync::{Arc, RwLock};
+//     use loom::thread;
+//
+//     #[test]
+//     fn test_concurrent_health_updates() {
+//         loom::model(|| {
+//             let lb = Arc::new(LoadBalancer::new());
+//
+//             let lb1 = Arc::clone(&lb);
+//             let t1 = thread::spawn(move || {
+//                 lb1.update_health("localhost:8081", false);
+//             });
+//
+//             let lb2 = Arc::clone(&lb);
+//             let t2 = thread::spawn(move || {
+//                 let _ = lb2.get_healthy_server();
+//             });
+//
+//             t1.join().unwrap();
+//             t2.join().unwrap();
+//         });
+//     }
+// }

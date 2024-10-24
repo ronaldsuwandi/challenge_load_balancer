@@ -5,16 +5,18 @@ Attempt to write simple round-robin load balancer in Rust
 ## To run servers
 
 ```
-python3 -m http.server 8081 --directory script/server1
-python3 -m http.server 8082 --directory script/server2
-python3 -m http.server 8083 --directory script/server3
+script/servers.sh
 ```
+
+This will launch 3 servers serving script/server1, script/server2, script/server3
 
 ## To run load balancer
 
 ```
-cargo run
+cargo run <config.toml>
 ```
+
+If config is not provided, it defaults to `./config.toml`
 
 ## To test
 
@@ -28,6 +30,7 @@ OR browse to http://localhost:8080
 
 - [ ] better error handling
 - [ ] handle await
-- [ ] healthcheck
+- [x] healthcheck
 - [ ] update build/run process
-- [ ] read config for lb
+- [x] read config for lb
+- [x] script to run server

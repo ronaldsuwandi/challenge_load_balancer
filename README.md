@@ -2,8 +2,8 @@
 
 Attempt to write a simple round-robin load balancer in Rust (compiled using Rust 1.81)
 
-See [CHALLENGE.md](CHALLENGE.md) or the [original challenge link](https://codingchallenges.
-fyi/challenges/challenge-load-balancer/)
+See [CHALLENGE.md](CHALLENGE.md) or
+the [original challenge link](https://codingchallenges.fyi/challenges/challenge-load-balancer/)
 for more details
 
 Uses Tokio to handle the the request in async fashion. Currently it forwards
